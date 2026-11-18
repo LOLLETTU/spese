@@ -70,8 +70,13 @@
     return data;
   }
 
+  let sheetOpen = false;
+  let ownBacks = 0;  // history.back() lanciati dall'app: i loro popstate non vanno trattati come "Indietro" dell'utente
+
   function openSheet(title, html, onReady) {
     toastEl.hidden = true;
+    sheetOpen = true;
+    history.pushState({ sheet: true }, "");  // il tasto Indietro del telefono chiude il foglio
     sheetTitle.textContent = title;
     sheetBody.innerHTML = html;
     sheet.hidden = false;
@@ -79,7 +84,10 @@
     requestAnimationFrame(() => sheet.classList.add("open"));
     if (onReady) onReady();
   }
-  function closeSheet() {
+  function closeSheet(fromPop) {
+    if (!sheetOpen) return;
+    sheetOpen = false;
+    if (fromPop !== true && history.state && history.state.sheet) { ownBacks++; history.back(); }
     sheet.classList.remove("open");
     document.body.classList.remove("lock");
     setTimeout(() => { sheet.hidden = true; sheetBody.innerHTML = ""; }, 200);
@@ -200,7 +208,10 @@
               : `<li class="row"><div class="grow"><p class="title">Tu devi a ${esc(p.to_name)}</p><p class="amt neg">${money(p.amount)}</p></div>${payBtn(p)}</li>`)
             .join("");
           return `<section class="panel">
-              <h3>Il tuo saldo</h3>
+              <div class="row-between">
+                <h3>Il tuo saldo · ${esc(byId[me])}</h3>
+                <button type="button" class="link-btn" id="change-me">Cambia persona</button>
+              </div>
               <div style="margin:6px 0 10px">${summary}</div>
               ${rows ? `<ul class="list">${rows}</ul><p class="hint" style="margin-top:8px">Quando vi ridate i soldi, tocca “Segna pagato”.</p>` : '<p class="muted small">Nessun debito con gli altri.</p>'}
             </section>`;
@@ -556,6 +567,7 @@
     }
     if (t.dataset.tab) { tab = t.dataset.tab; drawGroup(); return; }
     if (t.dataset.me) { setMe(currentSlug, t.dataset.me); drawGroup(); return; }
+    if (t.id === "change-me") { localStorage.removeItem("spese.me." + currentSlug); drawGroup(); return; }
     if (t.id === "add-expense") { openExpenseSheet(); return; }
     if (t.id === "add-person") { openPersonSheet(); return; }
     if (t.dataset.del) { openDeleteSheet(t.dataset.del); return; }
@@ -622,5 +634,9 @@
     }
   }
   window.addEventListener("hashchange", route);
+  window.addEventListener("popstate", () => {
+    if (ownBacks > 0) { ownBacks--; return; }
+    if (sheetOpen) closeSheet(true);
+  });
   route();
 })();
