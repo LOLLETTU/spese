@@ -3,7 +3,7 @@
 
   // Il sito statico è su GitHub Pages; le API girano sul Mac Mini.
   const API_BASE = location.hostname === "localhost" || location.hostname === "127.0.0.1"
-    ? "http://127.0.0.1:8795"
+    ? "http://127.0.0.1:8796"
     : "https://api-spese.lollettu.com";
 
   const app = document.getElementById("app");
@@ -17,6 +17,14 @@
   const dopFmt = new Intl.NumberFormat("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" });
   const moneyDop = (cents) => dopFmt.format(cents / 100) + " DOP";
   const parseRate = (raw) => Number(String(raw).trim().replace(",", "."));
+  const dopWhole = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0, useGrouping: "always" });
+  // Importo in pesos equivalente a un importo in centesimi di euro, col cambio del gruppo (EUR per 1 DOP).
+  const dopOf = (cents) => {
+    const rate = current && Number(current.group.dop_rate);
+    return rate > 0 ? `${dopWhole.format(Math.round(cents / 100 / rate))} DOP` : "";
+  };
+  // Importo in euro con, sotto, l'equivalente in pesos.
+  const both = (cents, cls) => `<span class="amt-both ${cls || ""}"><span class="amt-eur">${money(cents)}</span><span class="amt-dop">${esc(dopOf(cents))}</span></span>`;
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
@@ -197,15 +205,15 @@
       ? (() => {
           const net = balances.totals[me];
           const summary = net > 0
-            ? `<p class="big-balance pos">+${money(net)}</p><p class="muted">ti devono in totale</p>`
+            ? `<p class="big-balance pos">+${money(net)}</p><p class="muted">≈ ${esc(dopOf(net))} · ti devono in totale</p>`
             : net < 0
-              ? `<p class="big-balance neg">${money(-net)}</p><p class="muted">devi in totale</p>`
+              ? `<p class="big-balance neg">${money(-net)}</p><p class="muted">≈ ${esc(dopOf(-net))} · devi in totale</p>`
               : `<p class="big-balance">${money(0)}</p><p class="muted">sei in pari con tutti</p>`;
           const rows = balances.pairs
             .filter((p) => p.from === me || p.to === me)
             .map((p) => p.to === me
-              ? `<li class="row"><div class="grow"><p class="title">${esc(p.from_name)} ti deve</p><p class="amt pos">${money(p.amount)}</p></div>${payBtn(p)}</li>`
-              : `<li class="row"><div class="grow"><p class="title">Tu devi a ${esc(p.to_name)}</p><p class="amt neg">${money(p.amount)}</p></div>${payBtn(p)}</li>`)
+              ? `<li class="row"><div class="grow"><p class="title">${esc(p.from_name)} ti deve</p>${both(p.amount, "pos")}</div>${payBtn(p)}</li>`
+              : `<li class="row"><div class="grow"><p class="title">Tu devi a ${esc(p.to_name)}</p>${both(p.amount, "neg")}</div>${payBtn(p)}</li>`)
             .join("");
           return `<section class="panel">
               <div class="row-between">
@@ -223,7 +231,7 @@
 
     const others = me ? balances.pairs.filter((p) => p.from !== me && p.to !== me) : balances.pairs;
     const all = others.length
-      ? `<ul class="list">${others.map((p) => `<li class="row"><div class="grow"><p class="title">${esc(p.from_name)} → ${esc(p.to_name)}</p><p class="amt">${money(p.amount)}</p></div>${payBtn(p)}</li>`).join("")}</ul>`
+      ? `<ul class="list">${others.map((p) => `<li class="row"><div class="grow"><p class="title">${esc(p.from_name)} → ${esc(p.to_name)}</p>${both(p.amount)}</div>${payBtn(p)}</li>`).join("")}</ul>`
       : `<p class="muted small">${me && balances.pairs.length ? "Nessun altro debito tra gli altri." : "Nessun debito aperto: siete in pari."}</p>`;
 
     const othersSection = me && !others.length ? "" : `
@@ -318,15 +326,15 @@
         <div class="field">
           <span class="label">Valuta</span>
           <div class="chips" id="currency-chips">
-            <button type="button" class="chip" data-currency="EUR" aria-pressed="true">Euro (€)</button>
-            <button type="button" class="chip" data-currency="DOP" aria-pressed="false">Pesos (DOP)</button>
+            <button type="button" class="chip" data-currency="DOP" aria-pressed="true">Pesos (DOP)</button>
+            <button type="button" class="chip" data-currency="EUR" aria-pressed="false">Euro (€)</button>
           </div>
         </div>
         <label class="field">
-          <span id="amount-label">Importo (€)</span>
+          <span id="amount-label">Importo (DOP)</span>
           <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" required>
         </label>
-        <label class="field" id="rate-field" hidden>
+        <label class="field" id="rate-field">
           <span>Cambio: 1 € = … DOP</span>
           <input name="rate" inputmode="decimal" autocomplete="off" value="${esc((1 / Number(group.dop_rate)).toFixed(2).replace(".", ","))}">
           <span class="hint" id="rate-preview"></span>
@@ -467,7 +475,7 @@
     openSheet("Segna pagamento", `
       <form id="settle-form" class="stack-lg" novalidate data-from="${esc(fromId)}" data-to="${esc(toId)}">
         <p><strong>${esc(byId[fromId])}</strong> restituisce a <strong>${esc(byId[toId])}</strong>.<br>
-          <span class="muted">Debito attuale: ${money(cents)}.</span></p>
+          <span class="muted">Debito attuale: ${money(cents)} (≈ ${esc(dopOf(cents))}).</span></p>
         <label class="field">
           <span>Importo restituito (€)</span>
           <input name="amount" inputmode="decimal" autocomplete="off" value="${esc(full)}" required>

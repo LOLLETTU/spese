@@ -274,3 +274,9 @@ input:focus-visible, button:focus-visible, a:focus-visible {
 .grow { flex: 1; min-width: 0; }
 .grow > p { margin: 0; }
 .small-btn { min-height: 44px; padding: 8px 14px; font-size: 0.9rem; flex: none; }
+
+.amt-both { display: grid; justify-items: start; line-height: 1.25; }
+.amt-eur { font-variant-numeric: tabular-nums; font-weight: 650; }
+.amt-dop { font-variant-numeric: tabular-nums; font-size: 0.85rem; color: var(--muted); }
+.amt-both.pos .amt-eur { color: var(--pos); }
+.amt-both.neg .amt-eur { color: var(--neg); }
