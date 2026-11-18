@@ -251,7 +251,7 @@
       <header class="top">
         <a class="back" href="#/">← Gruppi</a>
         <h1>${esc(group.name)}</h1>
-        <p class="muted small">${people} persone · ${group.expenses.length} spese · totale ${money(group.total_cents)}</p>
+        <p class="muted small">${people} persone · ${group.expenses.length} ${group.expenses.length === 1 ? "spesa" : "spese"} · totale ${money(group.total_cents)}</p>
       </header>
       <nav class="tabs" role="tablist" aria-label="Sezioni">
         <button type="button" role="tab" data-tab="saldi" aria-selected="${tab === "saldi"}">Saldi</button>
@@ -321,7 +321,7 @@
     const value = Number(raw);
     const el = document.getElementById("split-preview");
     if (!n) { el.textContent = "Scegli almeno una persona."; return; }
-    if (!value || value <= 0) { el.textContent = `Quota a testa: ${n} persona${n > 1 ? "e" : ""}, inserisci l'importo.`; return; }
+    if (!value || value <= 0) { el.textContent = `Diviso tra ${n} ${n > 1 ? "persone" : "persona"}: inserisci l'importo.`; return; }
     el.textContent = `Quota a testa: ${money(Math.round((value * 100) / n))} (${n} ${n > 1 ? "persone" : "persona"})`;
   }
 

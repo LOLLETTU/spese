@@ -5,7 +5,7 @@
   --fg: #0F172A;
   --muted: #475569;
   --line: #E2E8F0;
-  --line-strong: #CBD5E1;
+  --line-strong: #94A3B8;
   --primary: #047857;
   --primary-hover: #065F46;
   --on-primary: #FFFFFF;
@@ -52,7 +52,9 @@ p { margin: 0; }
   color: var(--muted);
   text-decoration: none;
   font-size: 0.95rem;
-  padding: 6px 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }
 .muted { color: var(--muted); }
 .small { font-size: 0.875rem; }
