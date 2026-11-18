@@ -253,7 +253,7 @@ input:focus-visible, button:focus-visible, a:focus-visible {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: calc(96px + var(--safe-b));
+  top: calc(12px + env(safe-area-inset-top, 0px));
   max-width: 448px;
   margin: 0 auto;
   background: var(--fg);
@@ -270,3 +270,7 @@ input:focus-visible, button:focus-visible, a:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; }
 }
+
+.grow { flex: 1; min-width: 0; }
+.grow > p { margin: 0; }
+.small-btn { min-height: 44px; padding: 8px 14px; font-size: 0.9rem; flex: none; }

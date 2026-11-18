@@ -14,6 +14,9 @@
 
   const eur = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" });
   const money = (cents) => eur.format(cents / 100);
+  const dopFmt = new Intl.NumberFormat("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" });
+  const moneyDop = (cents) => dopFmt.format(cents / 100) + " DOP";
+  const parseRate = (raw) => Number(String(raw).trim().replace(",", "."));
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
@@ -68,6 +71,7 @@
   }
 
   function openSheet(title, html, onReady) {
+    toastEl.hidden = true;
     sheetTitle.textContent = title;
     sheetBody.innerHTML = html;
     sheet.hidden = false;
@@ -175,6 +179,10 @@
     }
   }
 
+  function payBtn(p) {
+    return `<button type="button" class="btn ghost small-btn" data-settle="${esc(p.from)}|${esc(p.to)}|${p.amount}">Segna pagato</button>`;
+  }
+
   function saldiHtml(group, balances, me) {
     const byId = Object.fromEntries(group.people.map((p) => [p.id, p.name]));
     const meBlock = me
@@ -188,13 +196,13 @@
           const rows = balances.pairs
             .filter((p) => p.from === me || p.to === me)
             .map((p) => p.to === me
-              ? `<li class="row"><span class="title">${esc(p.from_name)} ti deve</span><span class="amt pos">${money(p.amount)}</span></li>`
-              : `<li class="row"><span class="title">Tu devi a ${esc(p.to_name)}</span><span class="amt neg">${money(p.amount)}</span></li>`)
+              ? `<li class="row"><div class="grow"><p class="title">${esc(p.from_name)} ti deve</p><p class="amt pos">${money(p.amount)}</p></div>${payBtn(p)}</li>`
+              : `<li class="row"><div class="grow"><p class="title">Tu devi a ${esc(p.to_name)}</p><p class="amt neg">${money(p.amount)}</p></div>${payBtn(p)}</li>`)
             .join("");
           return `<section class="panel">
               <h3>Il tuo saldo</h3>
               <div style="margin:6px 0 10px">${summary}</div>
-              ${rows ? `<ul class="list">${rows}</ul>` : '<p class="muted small">Nessun debito con gli altri.</p>'}
+              ${rows ? `<ul class="list">${rows}</ul><p class="hint" style="margin-top:8px">Quando vi ridate i soldi, tocca “Segna pagato”.</p>` : '<p class="muted small">Nessun debito con gli altri.</p>'}
             </section>`;
         })()
       : `<section class="panel"><h3>Chi sei?</h3>
@@ -202,43 +210,66 @@
            <div class="chips">${group.people.map((p) => `<button type="button" class="chip" data-me="${esc(p.id)}" aria-pressed="false">${esc(p.name)}</button>`).join("")}</div>
          </section>`;
 
-    const all = balances.pairs.length
-      ? `<ul class="list">${balances.pairs.map((p) => `<li class="row"><span class="title">${esc(p.from_name)} → ${esc(p.to_name)}</span><span class="amt">${money(p.amount)}</span></li>`).join("")}</ul>`
-      : '<p class="muted small">Nessun debito aperto: siete in pari.</p>';
+    const others = me ? balances.pairs.filter((p) => p.from !== me && p.to !== me) : balances.pairs;
+    const all = others.length
+      ? `<ul class="list">${others.map((p) => `<li class="row"><div class="grow"><p class="title">${esc(p.from_name)} → ${esc(p.to_name)}</p><p class="amt">${money(p.amount)}</p></div>${payBtn(p)}</li>`).join("")}</ul>`
+      : `<p class="muted small">${me && balances.pairs.length ? "Nessun altro debito tra gli altri." : "Nessun debito aperto: siete in pari."}</p>`;
 
-    return `${meBlock}
+    const othersSection = me && !others.length ? "" : `
       <section class="panel">
-        <h3>Tutti i debiti</h3>
-        <p class="hint" style="margin:4px 0 6px">Ogni riga è il debito netto tra due persone.</p>
+        <h3>${me ? "Debiti tra gli altri" : "Tutti i debiti"}</h3>
+        <p class="hint" style="margin:4px 0 6px">Ogni riga è il debito netto tra due persone.${me ? "" : " Quando vi ridate i soldi, tocca “Segna pagato”."}</p>
         ${all}
-      </section>
+      </section>`;
+    return `${meBlock}${othersSection}
       <button type="button" class="btn ghost block" id="add-person">+ Aggiungi persona</button>`;
   }
 
   function speseHtml(group) {
-    if (!group.expenses.length) {
+    const items = [
+      ...group.expenses.map((e) => ({ kind: "exp", date: e.date, created: e.created, e })),
+      ...(group.settlements || []).map((s) => ({ kind: "pay", date: s.date, created: s.created, s })),
+    ];
+    if (!items.length) {
       return '<div class="empty"><p>Nessuna spesa ancora.</p><p class="small">Tocca “+ Spesa” in basso per aggiungere la prima.</p></div>';
     }
     const byId = Object.fromEntries(group.people.map((p) => [p.id, p.name]));
     const days = {};
-    group.expenses.forEach((e) => { (days[e.date] = days[e.date] || []).push(e); });
-    return Object.keys(days).sort().reverse().map((date) => `
-      <section class="day">
-        <h3>${esc(shortDate(date))}</h3>
-        <div class="panel" style="padding:4px 14px">
-          <ul class="list">
-            ${days[date].map((e) => `
+    items.forEach((it) => { (days[it.date] = days[it.date] || []).push(it); });
+    Object.values(days).forEach((list) => list.sort((a, b) => b.created.localeCompare(a.created)));
+    const rowHtml = (it) => {
+      if (it.kind === "pay") {
+        const s = it.s;
+        return `
+              <li class="row">
+                <div style="min-width:0">
+                  <p class="title">${esc(byId[s.from])} → ${esc(byId[s.to])}</p>
+                  <p class="meta">Pagamento: ${esc(byId[s.from])} ha restituito i soldi a ${esc(byId[s.to])}</p>
+                </div>
+                <div class="row" style="padding:0;gap:4px">
+                  <span class="amt pos">${money(s.amount_cents)}</span>
+                  <button type="button" class="icon-btn del" data-del-pay="${esc(s.id)}" aria-label="Annulla pagamento di ${esc(byId[s.from])} a ${esc(byId[s.to])}">${ICON_TRASH}</button>
+                </div>
+              </li>`;
+      }
+      const e = it.e;
+      return `
               <li class="row">
                 <div style="min-width:0">
                   <p class="title">${esc(e.description)}</p>
-                  <p class="meta">Pagato da ${esc(byId[e.paid_by])} · diviso tra ${e.split_among.length}</p>
+                  <p class="meta">Pagato da ${esc(byId[e.paid_by])} · diviso tra ${e.split_among.length}${e.currency === "DOP" ? ` · ${esc(moneyDop(e.orig_cents))}` : ""}</p>
                 </div>
                 <div class="row" style="padding:0;gap:4px">
                   <span class="amt">${money(e.amount_cents)}</span>
                   <button type="button" class="icon-btn del" data-del="${esc(e.id)}" aria-label="Elimina spesa ${esc(e.description)}">${ICON_TRASH}</button>
                 </div>
-              </li>`).join("")}
-          </ul>
+              </li>`;
+    };
+    return Object.keys(days).sort().reverse().map((date) => `
+      <section class="day">
+        <h3>${esc(shortDate(date))}</h3>
+        <div class="panel" style="padding:4px 14px">
+          <ul class="list">${days[date].map(rowHtml).join("")}</ul>
         </div>
       </section>`).join("");
   }
@@ -273,9 +304,21 @@
           <span>Cosa hai pagato?</span>
           <input name="description" maxlength="80" autocomplete="off" placeholder="Es. Cena al ristorante" required>
         </label>
+        <div class="field">
+          <span class="label">Valuta</span>
+          <div class="chips" id="currency-chips">
+            <button type="button" class="chip" data-currency="EUR" aria-pressed="true">Euro (€)</button>
+            <button type="button" class="chip" data-currency="DOP" aria-pressed="false">Pesos (DOP)</button>
+          </div>
+        </div>
         <label class="field">
-          <span>Importo (€)</span>
+          <span id="amount-label">Importo (€)</span>
           <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" required>
+        </label>
+        <label class="field" id="rate-field" hidden>
+          <span>Cambio: 1 € = … DOP</span>
+          <input name="rate" inputmode="decimal" autocomplete="off" value="${esc((1 / Number(group.dop_rate)).toFixed(2).replace(".", ","))}">
+          <span class="hint" id="rate-preview"></span>
         </label>
         <div class="field">
           <span class="label">Chi ha pagato</span>
@@ -304,9 +347,23 @@
       const form = document.getElementById("expense-form");
       form.amount.addEventListener("focus", () => form.amount.select());
       form.amount.addEventListener("input", updateSplitPreview);
+      form.rate.addEventListener("focus", () => form.rate.select());
+      form.rate.addEventListener("input", updateSplitPreview);
       updateSplitPreview();
       form.description.focus();
     });
+  }
+
+  function selectedCurrency() {
+    const b = sheetBody.querySelector('[data-currency][aria-pressed="true"]');
+    return b ? b.dataset.currency : "EUR";
+  }
+
+  function applyCurrency() {
+    const dop = selectedCurrency() === "DOP";
+    document.getElementById("rate-field").hidden = !dop;
+    document.getElementById("amount-label").textContent = dop ? "Importo (DOP)" : "Importo (€)";
+    updateSplitPreview();
   }
 
   function selectedIds(attr) {
@@ -317,9 +374,21 @@
     const form = document.getElementById("expense-form");
     if (!form) return;
     const n = selectedIds("data-split").length;
-    const raw = form.amount.value.trim().replace(/\./g, "").replace(",", ".");
-    const value = Number(raw);
+    let raw = form.amount.value.trim().replace(/\s/g, "");
+    if (raw.includes(",")) raw = raw.replace(/\./g, "").replace(",", ".");
+    else if (/^\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, "");
+    let value = Number(raw);
     const el = document.getElementById("split-preview");
+    if (selectedCurrency() === "DOP") {
+      const dopPerEur = parseRate(form.rate.value);
+      const rp = document.getElementById("rate-preview");
+      if (value > 0 && dopPerEur > 0) {
+        value = value / dopPerEur;
+        rp.textContent = `Totale convertito: ≈ ${money(Math.round(value * 100))}`;
+      } else {
+        rp.textContent = "";
+      }
+    }
     if (!n) { el.textContent = "Scegli almeno una persona."; return; }
     if (!value || value <= 0) { el.textContent = `Diviso tra ${n} ${n > 1 ? "persone" : "persona"}: inserisci l'importo.`; return; }
     el.textContent = `Quota a testa: ${money(Math.round((value * 100) / n))} (${n} ${n > 1 ? "persone" : "persona"})`;
@@ -338,9 +407,14 @@
     if (!paid_by) return fail("Scegli chi ha pagato");
     if (!split_among.length) return fail("Scegli almeno una persona tra cui dividere");
     try {
-      const data = await api("POST", `/api/groups/${currentSlug}/expenses`, {
-        description, amount, paid_by, split_among, date: form.date.value || todayISO(),
-      });
+      const currency = selectedCurrency();
+      const payload = { description, amount, paid_by, split_among, date: form.date.value || todayISO(), currency };
+      if (currency === "DOP") {
+        const dopPerEur = parseRate(form.rate.value);
+        if (!(dopPerEur > 0)) return fail("Inserisci il cambio, es. 67,10");
+        payload.rate = (1 / dopPerEur).toFixed(6);
+      }
+      const data = await api("POST", `/api/groups/${currentSlug}/expenses`, payload);
       current = data;
       closeSheet();
       drawGroup();
@@ -371,6 +445,66 @@
       closeSheet();
       drawGroup();
       toast("Spesa eliminata");
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  function openSettleSheet(fromId, toId, cents) {
+    const byId = Object.fromEntries(current.group.people.map((p) => [p.id, p.name]));
+    const full = (cents / 100).toFixed(2).replace(".", ",");
+    openSheet("Segna pagamento", `
+      <form id="settle-form" class="stack-lg" novalidate data-from="${esc(fromId)}" data-to="${esc(toId)}">
+        <p><strong>${esc(byId[fromId])}</strong> restituisce a <strong>${esc(byId[toId])}</strong>.<br>
+          <span class="muted">Debito attuale: ${money(cents)}.</span></p>
+        <label class="field">
+          <span>Importo restituito (€)</span>
+          <input name="amount" inputmode="decimal" autocomplete="off" value="${esc(full)}" required>
+          <span class="hint">Se restituisce tutto, il saldo tra voi due va a zero. Puoi anche mettere una cifra più bassa.</span>
+        </label>
+        <p class="error" id="settle-error" hidden></p>
+        <button class="btn primary block" type="submit">Conferma pagamento</button>
+      </form>`, () => { const i = document.querySelector("#settle-form input"); i.focus(); i.select(); });
+  }
+
+  async function submitSettle(form) {
+    const err = document.getElementById("settle-error");
+    err.hidden = true;
+    const amount = form.amount.value.trim();
+    if (!amount) { err.textContent = "Inserisci l'importo"; err.hidden = false; return; }
+    try {
+      current = await api("POST", `/api/groups/${currentSlug}/settlements`, {
+        from_id: form.dataset.from, to_id: form.dataset.to, amount, date: todayISO(),
+      });
+      closeSheet();
+      drawGroup();
+      toast("Pagamento registrato");
+    } catch (e) {
+      err.textContent = e.message;
+      err.hidden = false;
+    }
+  }
+
+  function openDeletePaySheet(sid) {
+    const s = (current.group.settlements || []).find((x) => x.id === sid);
+    if (!s) return;
+    const byId = Object.fromEntries(current.group.people.map((p) => [p.id, p.name]));
+    openSheet("Annullare il pagamento?", `
+      <div class="stack-lg">
+        <p>Il pagamento di ${money(s.amount_cents)} da ${esc(byId[s.from])} a ${esc(byId[s.to])} verrà tolto e il debito tornerà com'era.</p>
+        <div class="stack">
+          <button type="button" class="btn danger block" id="confirm-delete-pay" data-sid="${esc(sid)}">Annulla pagamento</button>
+          <button type="button" class="btn ghost block" id="cancel-sheet">Indietro</button>
+        </div>
+      </div>`);
+  }
+
+  async function confirmDeletePay(sid) {
+    try {
+      current = await api("DELETE", `/api/groups/${currentSlug}/settlements/${sid}`);
+      closeSheet();
+      drawGroup();
+      toast("Pagamento annullato");
     } catch (e) {
       toast(e.message);
     }
@@ -425,6 +559,12 @@
     if (t.id === "add-expense") { openExpenseSheet(); return; }
     if (t.id === "add-person") { openPersonSheet(); return; }
     if (t.dataset.del) { openDeleteSheet(t.dataset.del); return; }
+    if (t.dataset.delPay) { openDeletePaySheet(t.dataset.delPay); return; }
+    if (t.dataset.settle) {
+      const [f, to, amt] = t.dataset.settle.split("|");
+      openSettleSheet(f, to, Number(amt));
+      return;
+    }
   });
 
   app.addEventListener("submit", (ev) => {
@@ -438,6 +578,11 @@
     if (t.id === "sheet-close" || t.id === "cancel-sheet") { closeSheet(); return; }
     if (t.dataset.payer) {
       sheetBody.querySelectorAll("[data-payer]").forEach((b) => b.setAttribute("aria-pressed", String(b === t)));
+      return;
+    }
+    if (t.dataset.currency) {
+      sheetBody.querySelectorAll("[data-currency]").forEach((b) => b.setAttribute("aria-pressed", String(b === t)));
+      applyCurrency();
       return;
     }
     if (t.dataset.split) {
@@ -454,12 +599,14 @@
       return;
     }
     if (t.id === "confirm-delete") { confirmDelete(t.dataset.eid); return; }
+    if (t.id === "confirm-delete-pay") { confirmDeletePay(t.dataset.sid); return; }
   });
 
   sheet.addEventListener("submit", (ev) => {
     ev.preventDefault();
     if (ev.target.id === "expense-form") submitExpense(ev.target);
     if (ev.target.id === "person-form") submitPerson(ev.target);
+    if (ev.target.id === "settle-form") submitSettle(ev.target);
   });
 
   document.addEventListener("keydown", (ev) => {
