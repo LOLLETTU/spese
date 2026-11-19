@@ -280,3 +280,4 @@ input:focus-visible, button:focus-visible, a:focus-visible {
 .amt-dop { font-variant-numeric: tabular-nums; font-size: 0.85rem; color: var(--muted); }
 .amt-both.pos .amt-eur { color: var(--pos); }
 .amt-both.neg .amt-eur { color: var(--neg); }
+

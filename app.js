@@ -52,6 +52,7 @@
   const setMe = (slug, id) => localStorage.setItem("spese.me." + slug, id);
 
   const ICON_TRASH = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12h10l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const ICON_EDIT = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const ICON_MINUS = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
   let toastTimer;
@@ -280,6 +281,7 @@
                 </div>
                 <div class="row" style="padding:0;gap:4px">
                   <span class="amt">${money(e.amount_cents)}</span>
+                  <button type="button" class="icon-btn" data-edit="${esc(e.id)}" aria-label="Modifica spesa ${esc(e.description)}">${ICON_EDIT}</button>
                   <button type="button" class="icon-btn del" data-del="${esc(e.id)}" aria-label="Elimina spesa ${esc(e.description)}">${ICON_TRASH}</button>
                 </div>
               </li>`;
@@ -313,36 +315,49 @@
 
   /* ---------- Sheet: nuova spesa ---------- */
 
-  function openExpenseSheet() {
+  let editingId = null;      // id della spesa in modifica (null = nuova spesa)
+  let editingRate = null;    // cambio originale della spesa in modifica, da non ricalcolare se il campo non viene toccato
+  let editingRateShown = ""; // come era mostrato nel campo
+
+  function openExpenseSheet(exp) {
     const { group } = current;
     const me = getMe(group.slug);
     const defaultPayer = group.people.some((p) => p.id === me) ? me : group.people[0].id;
+    editingId = exp ? exp.id : null;
+    const cur = exp ? exp.currency : "DOP";
+    const payer = exp ? exp.paid_by : defaultPayer;
+    const splitSet = new Set(exp ? exp.split_among : group.people.map((p) => p.id));
+    const rateEur = exp && exp.rate ? Number(exp.rate) : Number(group.dop_rate);
+    const rateShown = (1 / rateEur).toFixed(2).replace(".", ",");
+    editingRate = exp && exp.currency === "DOP" ? exp.rate : null;
+    editingRateShown = rateShown;
+    const amountShown = exp ? (exp.orig_cents / 100).toFixed(2).replace(".", ",") : "";
     const html = `
       <form id="expense-form" class="stack-lg" novalidate>
         <label class="field">
           <span>Cosa hai pagato?</span>
-          <input name="description" maxlength="80" autocomplete="off" placeholder="Es. Cena al ristorante" required>
+          <input name="description" maxlength="80" autocomplete="off" placeholder="Es. Cena al ristorante" value="${esc(exp ? exp.description : "")}" required>
         </label>
         <div class="field">
           <span class="label">Valuta</span>
           <div class="chips" id="currency-chips">
-            <button type="button" class="chip" data-currency="DOP" aria-pressed="true">Pesos (DOP)</button>
-            <button type="button" class="chip" data-currency="EUR" aria-pressed="false">Euro (€)</button>
+            <button type="button" class="chip" data-currency="DOP" aria-pressed="${cur === "DOP"}">Pesos (DOP)</button>
+            <button type="button" class="chip" data-currency="EUR" aria-pressed="${cur === "EUR"}">Euro (€)</button>
           </div>
         </div>
         <label class="field">
-          <span id="amount-label">Importo (DOP)</span>
-          <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" required>
+          <span id="amount-label">Importo (${cur === "DOP" ? "DOP" : "€"})</span>
+          <input name="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(amountShown)}" required>
         </label>
-        <label class="field" id="rate-field">
+        <label class="field" id="rate-field" ${cur === "DOP" ? "" : "hidden"}>
           <span>Cambio: 1 € = … DOP</span>
-          <input name="rate" inputmode="decimal" autocomplete="off" value="${esc((1 / Number(group.dop_rate)).toFixed(2).replace(".", ","))}">
+          <input name="rate" inputmode="decimal" autocomplete="off" value="${esc(rateShown)}">
           <span class="hint" id="rate-preview"></span>
         </label>
         <div class="field">
           <span class="label">Chi ha pagato</span>
           <div class="chips" id="payer-chips">
-            ${group.people.map((p) => `<button type="button" class="chip" data-payer="${esc(p.id)}" aria-pressed="${p.id === defaultPayer}">${esc(p.name)}</button>`).join("")}
+            ${group.people.map((p) => `<button type="button" class="chip" data-payer="${esc(p.id)}" aria-pressed="${p.id === payer}">${esc(p.name)}</button>`).join("")}
           </div>
         </div>
         <div class="field">
@@ -351,18 +366,18 @@
             <button type="button" class="link-btn" id="split-all">Tutti</button>
           </div>
           <div class="chips" id="split-chips">
-            ${group.people.map((p) => `<button type="button" class="chip" data-split="${esc(p.id)}" aria-pressed="true">${esc(p.name)}</button>`).join("")}
+            ${group.people.map((p) => `<button type="button" class="chip" data-split="${esc(p.id)}" aria-pressed="${splitSet.has(p.id)}">${esc(p.name)}</button>`).join("")}
           </div>
           <p class="hint" id="split-preview"></p>
         </div>
         <label class="field">
           <span>Data</span>
-          <input name="date" type="date" value="${todayISO()}" required>
+          <input name="date" type="date" value="${esc(exp ? exp.date : todayISO())}" required>
         </label>
         <p class="error" id="expense-error" hidden></p>
-        <button class="btn primary block" type="submit">Salva spesa</button>
+        <button class="btn primary block" type="submit">${exp ? "Salva modifiche" : "Salva spesa"}</button>
       </form>`;
-    openSheet("Nuova spesa", html, () => {
+    openSheet(exp ? "Modifica spesa" : "Nuova spesa", html, () => {
       const form = document.getElementById("expense-form");
       form.amount.addEventListener("focus", () => form.amount.select());
       form.amount.addEventListener("input", updateSplitPreview);
@@ -431,13 +446,19 @@
       if (currency === "DOP") {
         const dopPerEur = parseRate(form.rate.value);
         if (!(dopPerEur > 0)) return fail("Inserisci il cambio, es. 67,10");
-        payload.rate = (1 / dopPerEur).toFixed(6);
+        // Se il campo cambio non è stato toccato, si rimanda il cambio originale (niente arrotondamenti).
+        payload.rate = editingId && editingRate && form.rate.value.trim() === editingRateShown
+          ? editingRate
+          : (1 / dopPerEur).toFixed(6);
       }
-      const data = await api("POST", `/api/groups/${currentSlug}/expenses`, payload);
+      const editing = editingId;
+      const data = editing
+        ? await api("PUT", `/api/groups/${currentSlug}/expenses/${editing}`, payload)
+        : await api("POST", `/api/groups/${currentSlug}/expenses`, payload);
       current = data;
       closeSheet();
       drawGroup();
-      toast("Spesa salvata");
+      toast(editing ? "Spesa aggiornata" : "Spesa salvata");
     } catch (e) {
       fail(e.message);
     }
@@ -577,6 +598,11 @@
     if (t.dataset.me) { setMe(currentSlug, t.dataset.me); drawGroup(); return; }
     if (t.id === "change-me") { localStorage.removeItem("spese.me." + currentSlug); drawGroup(); return; }
     if (t.id === "add-expense") { openExpenseSheet(); return; }
+    if (t.dataset.edit) {
+      const exp = current.group.expenses.find((x) => x.id === t.dataset.edit);
+      if (exp) openExpenseSheet(exp);
+      return;
+    }
     if (t.id === "add-person") { openPersonSheet(); return; }
     if (t.dataset.del) { openDeleteSheet(t.dataset.del); return; }
     if (t.dataset.delPay) { openDeletePaySheet(t.dataset.delPay); return; }
